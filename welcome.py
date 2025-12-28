@@ -1,12 +1,17 @@
+import os
 import logging
 import random
+import asyncio
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
-TOKEN = "8505977032:AAFpiI7A4nFu--_xmw9Hiy8Dmr7NkoQc5C8"
+# Безопасное получение токена
+TOKEN = os.environ.get('TELEGRAM_TOKEN')
+if not TOKEN:
+    raise ValueError("Токен не найден! Установите переменную TELEGRAM_TOKEN")
+
 FIXED_USERNAME = "@Welcome775"
 
-# Разные варианты ответов
 RESPONSES = [
     f"я думаю это этот еблан {FIXED_USERNAME}",
     f"наверное, это всё из-за пидораса {FIXED_USERNAME}",
@@ -20,25 +25,62 @@ RESPONSES = [
 
 async def handle_all_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отвечает на все сообщения случайной фразой"""
-    message = update.message
+    if not update.message or not update.message.text:
+        return
     
-    # Выбираем случайный ответ
+    # Игнорируем команды
+    if update.message.text.startswith('/'):
+        return
+    
     response = random.choice(RESPONSES)
+    await update.message.reply_text(response)
     
-    await message.reply_text(response)
-    print(f"👤 {message.from_user.first_name}: {message.text if message.text else '[медиа]'}")
-    print(f"🤖 Бот: {response}")
+    # Логирование
+    user = update.message.from_user
+    logging.info(f"👤 {user.first_name} (@{user.username}): {update.message.text[:50]}")
+    logging.info(f"🤖 Бот: {response}")
 
-def main():
-    application = Application.builder().token(TOKEN).build()
-    application.add_handler(MessageHandler(filters.ALL, handle_all_messages))
-    
-    print("="*50)
-    print(f"🤖 Бот запущен!")
-    print(f"🔤 Варианты ответов: {len(RESPONSES)}")
-    print("="*50)
-    
-    application.run_polling()
+def run_bot():
+    """Запуск бота с обработкой ошибок"""
+    try:
+        # Настройка логирования
+        logging.basicConfig(
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            level=logging.INFO,
+            handlers=[
+                logging.StreamHandler(),  # Вывод в консоль
+                logging.FileHandler('bot.log')  # Логи в файл
+            ]
+        )
+        
+        # Создаем приложение
+        application = Application.builder().token(TOKEN).build()
+        
+        # Добавляем обработчик ТОЛЬКО текстовых сообщений (не команд)
+        application.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND, 
+            handle_all_messages
+        ))
+        
+        logging.info("="*50)
+        logging.info(f"🤖 Бот запущен и слушает сообщения...")
+        logging.info(f"🔤 Вариантов ответов: {len(RESPONSES)}")
+        logging.info(f"🎯 Цель: {FIXED_USERNAME}")
+        logging.info("="*50)
+        
+        # Запускаем polling с обработкой ошибок
+        application.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES,
+            close_loop=False
+        )
+        
+    except Exception as e:
+        logging.error(f"Ошибка при запуске бота: {e}")
+        # Перезапуск через 30 секунд
+        logging.info("Перезапуск через 30 секунд...")
+        time.sleep(30)
+        run_bot()
 
 if __name__ == '__main__':
-    main()
+    run_bot()
